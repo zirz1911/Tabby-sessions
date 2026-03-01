@@ -44,6 +44,13 @@ function send(cmd) {
   client.write(JSON.stringify(cmd) + '\n')
 }
 
+// Strip sequences that would corrupt our terminal's input mode
+function sanitize(data) {
+  return data
+    .replace(/\x1b\[\?9001h/g, '')   // Win32 Input Mode enable  — blocks typed input
+    .replace(/\x1b\[\?1004h/g, '')   // Focus tracking enable    — noisy in test-client
+}
+
 function handleEvent(ev) {
   switch (ev.type) {
     case 'sessions':
@@ -62,13 +69,17 @@ function handleEvent(ev) {
       break
     case 'attached':
       console.log(`[attached] id=${ev.id.slice(0, 8)}… (buffer replay below)`)
-      if (ev.buffer) process.stdout.write(ev.buffer)
+      if (ev.buffer) process.stdout.write(sanitize(ev.buffer))
+      // Reset Win32 Input Mode in case the shell enabled it
+      process.stdout.write('\x1b[?9001l')
       break
     case 'detached':
+      // Restore normal input mode on detach
+      process.stdout.write('\x1b[?9001l')
       console.log(`[detached] id=${ev.id.slice(0, 8)}…`)
       break
     case 'output':
-      process.stdout.write(ev.data)
+      process.stdout.write(sanitize(ev.data))
       break
     case 'exit':
       console.log(`\n[exit] id=${ev.id.slice(0, 8)}… code=${ev.code}`)
