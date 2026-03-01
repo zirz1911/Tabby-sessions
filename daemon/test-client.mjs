@@ -7,6 +7,13 @@ import readline from 'readline'
 
 const PIPE = '\\\\.\\pipe\\tabby-daemon'
 
+// Reset terminal input mode on startup and exit — in case a previous session
+// left the terminal in Win32 Input Mode (\x1b[?9001h)
+const RESET_INPUT_MODE = '\x1b[?9001l\x1b[?1004l'
+process.stdout.write(RESET_INPUT_MODE)
+process.on('exit', () => process.stdout.write(RESET_INPUT_MODE))
+process.on('SIGINT', () => { process.stdout.write(RESET_INPUT_MODE); process.exit(0) })
+
 const client = net.createConnection(PIPE, () => {
   console.log('[client] Connected to daemon')
   showHelp()
