@@ -7,6 +7,7 @@ import {
   AfterViewInit,
   NgZone,
   Input,
+  Injector,
 } from '@angular/core'
 import { BaseTabComponent } from 'tabby-core'
 import { Terminal } from '@xterm/xterm'
@@ -45,11 +46,12 @@ export class DaemonSessionTabComponent extends BaseTabComponent implements OnIni
   private attached = false
 
   constructor (
+    public injector: Injector,
     private daemon: DaemonClientService,
     private attachService: SessionAttachService,
     private zone: NgZone,
   ) {
-    super()
+    super(injector)
   }
 
   ngOnInit (): void {

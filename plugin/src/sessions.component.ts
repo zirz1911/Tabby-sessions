@@ -148,13 +148,17 @@ export class SessionsComponent implements OnInit, OnDestroy {
   }
 
   openTab (session: SessionInfo): void {
-    this.app.openNewTab({
-      type: DaemonSessionTabComponent,
-      inputs: {
-        sessionId:   session.id,
-        sessionName: session.name,
-      },
-    })
+    try {
+      this.app.openNewTabRaw({
+        type: DaemonSessionTabComponent,
+        inputs: {
+          sessionId:   session.id,
+          sessionName: session.name,
+        },
+      })
+    } catch (e: any) {
+      this.error = 'openTab failed: ' + (e?.message ?? String(e))
+    }
   }
 
   killSession (id: string): void {

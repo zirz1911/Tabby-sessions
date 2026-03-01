@@ -1,5 +1,5 @@
-import { Injectable, Inject } from '@angular/core'
-import { HostWindowService, BOOTSTRAP_DATA, BootstrapData } from 'tabby-core'
+import { Injectable } from '@angular/core'
+import { HostWindowService } from 'tabby-core'
 import { DaemonClientService } from './daemonClient.service'
 
 const childProcess = (window as any).require('child_process') as typeof import('child_process')
@@ -13,7 +13,6 @@ export class DaemonLifecycleService {
   constructor (
     private daemon: DaemonClientService,
     private hostWindow: HostWindowService,
-    @Inject(BOOTSTRAP_DATA) private bootstrapData: BootstrapData,
   ) {}
 
   async initialize (): Promise<void> {
@@ -46,8 +45,7 @@ export class DaemonLifecycleService {
       return
     }
 
-    const nodeBin = process.execPath
-    this.daemonProcess = childProcess.spawn(nodeBin, [daemonScript], {
+    this.daemonProcess = childProcess.spawn('node', [daemonScript], {
       detached: true,
       stdio:    'ignore',
       env:      { ...process.env },
@@ -57,12 +55,9 @@ export class DaemonLifecycleService {
   }
 
   private getDaemonPath (): string {
-    // Prefer the installed plugin's path from BootstrapData
-    const info = this.bootstrapData.installedPlugins.find(p => p.packageName === 'tabby-sessions')
-    const pluginDist = info?.path
-      ? path.join(info.path, 'dist')
-      : __dirname   // __dirname = plugin/dist/ when loaded as UMD
-    return path.join(pluginDist, '..', '..', 'daemon', 'dist', 'index.js')
+    // __dirname resolves to plugin/dist/ at runtime (symlink resolved by Node.js)
+    // Go up 2 levels: plugin/dist → plugin → project root, then into daemon/dist/
+    return path.join(__dirname, '..', '..', 'daemon', 'dist', 'index.js')
   }
 
   private async waitAndConnect (retries = 12, delayMs = 400): Promise<void> {
