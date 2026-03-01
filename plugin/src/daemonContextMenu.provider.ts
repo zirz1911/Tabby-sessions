@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core'
-import { TabContextMenuItemProvider, BaseTabComponent, MenuItemOptions } from 'tabby-core'
+import { TabContextMenuItemProvider, BaseTabComponent, MenuItemOptions, SplitTabComponent } from 'tabby-core'
 import { Subscription } from 'rxjs'
 import { filter } from 'rxjs/operators'
 import { DaemonClientService } from './daemonClient.service'
@@ -30,15 +30,20 @@ export class DaemonContextMenuProvider extends TabContextMenuItemProvider {
   async getItems (tab: BaseTabComponent): Promise<MenuItemOptions[]> {
     if (!this.daemon.connected) return []
 
-    const frontend = (tab as any).frontend
+    // SplitTabComponent wraps the actual terminal — unwrap to get inner tab
+    const innerTab = tab instanceof SplitTabComponent
+      ? tab.getAllTabs()[0] ?? tab
+      : tab
+
+    const frontend = (innerTab as any).frontend
     if (!frontend) return []  // not a terminal tab
 
-    const existing = this.redirects.get(tab)
+    const existing = this.redirects.get(innerTab)
     if (existing) {
       return [{
         type: 'normal',
         label: `Detach from [${existing.sessionName}]`,
-        click: () => this.detachRedirect(tab, existing),
+        click: () => this.detachRedirect(innerTab, existing),
       }]
     }
 
@@ -53,7 +58,7 @@ export class DaemonContextMenuProvider extends TabContextMenuItemProvider {
       submenu: alive.map(s => ({
         type: 'normal' as const,
         label: `${s.name}  \x1b[90m(${s.shell})\x1b[0m`,
-        click: () => this.attachRedirect(tab, s, frontend),
+        click: () => this.attachRedirect(innerTab, s, frontend),
       })),
     }]
   }
