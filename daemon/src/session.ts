@@ -41,6 +41,9 @@ export class Session {
       rows,
       cwd: this.cwd,
       env: process.env as { [key: string]: string },
+      // useConpty:false avoids the conpty_console_list_agent.js
+      // "AttachConsole failed" error when killing headless sessions
+      useConpty: false,
     })
 
     this._pty.onData((data) => {
