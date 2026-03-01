@@ -106,4 +106,23 @@ export class DaemonClientService {
   kill (id: string): void {
     this.send({ cmd: 'kill', id })
   }
+
+  detach (id: string): void {
+    this.send({ cmd: 'detach', id })
+  }
+
+  input (id: string, data: string): void {
+    this.send({ cmd: 'input', id, data })
+  }
+
+  resize (id: string, cols: number, rows: number): void {
+    this.send({ cmd: 'resize', id, cols, rows })
+  }
+
+  async shutdown (): Promise<void> {
+    try {
+      await this.request<{ type: 'ok' }>({ cmd: 'shutdown' } as any, 'ok')
+    } catch { /* connection drop is expected */ }
+    this.disconnect()
+  }
 }

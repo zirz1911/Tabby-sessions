@@ -35,10 +35,13 @@ module.exports = {
   externals: [
     'net',
     'fs',
+    'path',
+    'child_process',
     'ngx-toastr',
     /^rxjs/,
     /^@angular/,
     /^@ng-bootstrap/,
     /^tabby-/,
+    // xterm is bundled by us (tabby-terminal bundles its own copy separately)
   ],
 }
