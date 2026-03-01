@@ -47,6 +47,7 @@ function send(cmd) {
 function handleEvent(ev) {
   switch (ev.type) {
     case 'sessions':
+      knownSessions = ev.sessions
       if (ev.sessions.length === 0) {
         console.log('[sessions] (none)')
       } else {
@@ -56,6 +57,7 @@ function handleEvent(ev) {
       }
       break
     case 'created':
+      knownSessions = [...knownSessions.filter(s => s.id !== ev.session.id), ev.session]
       console.log(`[created] id=${ev.session.id.slice(0, 8)}… name="${ev.session.name}"`)
       break
     case 'attached':
@@ -87,6 +89,24 @@ function handleEvent(ev) {
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: '> ' })
 
 let attachedId = null
+let knownSessions = []  // cache from last 'list' or 'created' event
+
+// Resolve name, id-prefix, or full UUID → full ID
+function resolveId(input) {
+  if (!input) return null
+  // exact full UUID
+  if (input.length === 36 && knownSessions.find(s => s.id === input)) return input
+  // match by name (exact, case-insensitive)
+  const byName = knownSessions.filter(s => s.name.toLowerCase() === input.toLowerCase())
+  if (byName.length === 1) return byName[0].id
+  if (byName.length > 1) { console.log(`[ambiguous] ${byName.length} sessions named "${input}"`); return null }
+  // match by id prefix
+  const byPrefix = knownSessions.filter(s => s.id.startsWith(input))
+  if (byPrefix.length === 1) return byPrefix[0].id
+  if (byPrefix.length > 1) { console.log(`[ambiguous] ${byPrefix.length} sessions start with "${input}"`); return null }
+  console.log(`[not found] no session named or prefixed "${input}" — run l to refresh`)
+  return null
+}
 
 rl.on('line', (line) => {
   const parts = line.trim().split(/\s+/)
@@ -108,8 +128,10 @@ rl.on('line', (line) => {
 
     case 'attach':
     case 'a': {
-      const id = parts[1]
-      if (!id) { console.log('Usage: attach <id>'); break }
+      const raw = parts[1]
+      if (!raw) { console.log('Usage: attach <id-prefix>'); break }
+      const id = resolveId(raw)
+      if (!id) break
       attachedId = id
       send({ cmd: 'attach', id })
       break
@@ -124,17 +146,18 @@ rl.on('line', (line) => {
 
     case 'input':
     case 'i': {
-      const id = attachedId ?? parts[1]
+      const id = attachedId ?? resolveId(parts[1])
       const text = attachedId ? parts.slice(1).join(' ') + '\r\n' : parts.slice(2).join(' ') + '\r\n'
-      if (!id) { console.log('Usage: input <id> <text>  or attach first'); break }
+      if (!id) { console.log('Usage: input <id-prefix> <text>  or attach first'); break }
       send({ cmd: 'input', id, data: text })
       break
     }
 
     case 'kill':
     case 'k': {
-      const id = parts[1] ?? attachedId
-      if (!id) { console.log('Usage: kill <id>'); break }
+      const raw = parts[1] ?? attachedId
+      const id = attachedId && raw === attachedId ? attachedId : resolveId(raw)
+      if (!id) { console.log('Usage: kill <id-prefix>'); break }
       send({ cmd: 'kill', id })
       if (id === attachedId) attachedId = null
       break
@@ -173,6 +196,6 @@ Commands:
   kill (k) [id]         — kill session
   quit (q)              — exit
 
-Note: <id> can be the first few chars of the session ID
+Note: <id> accepts session name, id-prefix, or full UUID
 `)
 }
