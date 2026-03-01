@@ -1,9 +1,11 @@
 import { Component, OnInit, OnDestroy } from '@angular/core'
 import { Subscription } from 'rxjs'
-import { AppService } from 'tabby-core'
+import { AppService, TabsService, SplitTabComponent } from 'tabby-core'
 import { DaemonClientService } from './daemonClient.service'
 import { SessionInfo } from './protocol'
 import { DaemonSessionTabComponent } from './daemonSessionTab.component'
+
+type OpenMode = 'tab' | 'split-h' | 'split-v'
 
 @Component({
   template: `
@@ -33,6 +35,30 @@ import { DaemonSessionTabComponent } from './daemonSessionTab.component'
 
       <!-- Session list -->
       <div *ngIf="daemon.connected">
+
+        <!-- Open mode selector -->
+        <div class="d-flex align-items-center mb-2 gap-1" style="font-size:0.8em">
+          <span class="text-muted me-1">Open as:</span>
+          <button class="btn btn-xs"
+            [class.btn-primary]="openMode === 'tab'"
+            [class.btn-outline-secondary]="openMode !== 'tab'"
+            (click)="openMode = 'tab'" title="New tab">
+            ＋ Tab
+          </button>
+          <button class="btn btn-xs"
+            [class.btn-primary]="openMode === 'split-h'"
+            [class.btn-outline-secondary]="openMode !== 'split-h'"
+            (click)="openMode = 'split-h'" title="Split horizontal (side by side)">
+            ◫ Horizontal
+          </button>
+          <button class="btn btn-xs"
+            [class.btn-primary]="openMode === 'split-v'"
+            [class.btn-outline-secondary]="openMode !== 'split-v'"
+            (click)="openMode = 'split-v'" title="Split vertical (top / bottom)">
+            ⊟ Vertical
+          </button>
+        </div>
+
         <div *ngFor="let s of sessions"
           class="session-row d-flex align-items-center mb-2 p-2 rounded">
           <div class="flex-grow-1">
@@ -47,7 +73,7 @@ import { DaemonSessionTabComponent } from './daemonSessionTab.component'
           <button class="btn btn-sm btn-outline-primary me-1"
             *ngIf="s.alive"
             (click)="openTab(s)"
-            title="Open in new tab">
+            title="Open session">
             Open
           </button>
           <button class="btn btn-sm btn-danger"
@@ -89,6 +115,7 @@ import { DaemonSessionTabComponent } from './daemonSessionTab.component'
     }
     .session-row:hover { background: rgba(255,255,255,0.1); }
     .gap-1 { gap: 4px; }
+    .btn-xs { padding: 1px 6px; font-size: 0.75em; }
   `],
 })
 export class SessionsComponent implements OnInit, OnDestroy {
@@ -96,6 +123,7 @@ export class SessionsComponent implements OnInit, OnDestroy {
   newName = ''
   newShell = ''
   error = ''
+  openMode: OpenMode = 'tab'
   shells = ['powershell.exe', 'pwsh.exe', 'wsl.exe']
 
   private sub?: Subscription
@@ -103,6 +131,7 @@ export class SessionsComponent implements OnInit, OnDestroy {
   constructor (
     public daemon: DaemonClientService,
     private app: AppService,
+    private tabs: TabsService,
   ) {}
 
   async ngOnInit (): Promise<void> {
@@ -148,14 +177,35 @@ export class SessionsComponent implements OnInit, OnDestroy {
   }
 
   openTab (session: SessionInfo): void {
+    const inputs = { sessionId: session.id, sessionName: session.name }
     try {
-      this.app.openNewTabRaw({
-        type: DaemonSessionTabComponent,
-        inputs: {
-          sessionId:   session.id,
-          sessionName: session.name,
-        },
-      })
+      if (this.openMode === 'tab') {
+        this.app.openNewTabRaw({ type: DaemonSessionTabComponent, inputs })
+        return
+      }
+
+      // Split mode — create tab first, then insert into active split
+      const newTab = this.tabs.create({ type: DaemonSessionTabComponent, inputs })
+      const dir = this.openMode === 'split-h' ? 'r' : 'b'
+      const activeTop = this.app.activeTab
+
+      if (activeTop instanceof SplitTabComponent) {
+        // Already inside a split — add to it
+        const innerActive = activeTop.getAllTabs()[0] ?? null
+        activeTop.addTab(newTab, innerActive, dir)
+      } else if (activeTop) {
+        // Plain tab — get parent split or wrap
+        const parentSplit = this.app.getParentTab(activeTop)
+        if (parentSplit) {
+          parentSplit.addTab(newTab, activeTop, dir)
+        } else {
+          const split = this.app.wrapAndAddTab(activeTop)
+          split.addTab(newTab, activeTop, dir)
+        }
+      } else {
+        // No active tab — fall back to new tab
+        this.app.openNewTabRaw({ type: DaemonSessionTabComponent, inputs })
+      }
     } catch (e: any) {
       this.error = 'openTab failed: ' + (e?.message ?? String(e))
     }
@@ -163,6 +213,5 @@ export class SessionsComponent implements OnInit, OnDestroy {
 
   killSession (id: string): void {
     this.daemon.kill(id)
-    // list refreshes via exit event in ngOnInit subscriber
   }
 }
