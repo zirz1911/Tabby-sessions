@@ -7,5 +7,8 @@ export class SessionsSettingsTabProvider extends SettingsTabProvider {
   id = 'daemon-sessions'
   icon = 'layers'
   title = 'Sessions'
-  component = SessionsComponent
+
+  getComponentType () {
+    return SessionsComponent
+  }
 }
