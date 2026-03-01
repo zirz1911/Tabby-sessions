@@ -1,6 +1,7 @@
 import * as net from 'net'
 import { Command, DaemonEvent, PIPE_NAME } from './protocol'
 import { SessionManager } from './daemon'
+import { killOldDaemon, writePid, PID_FILE } from './pid'
 
 // Framing: each JSON message ends with newline \n
 function send(socket: net.Socket, event: DaemonEvent): void {
@@ -9,7 +10,7 @@ function send(socket: net.Socket, event: DaemonEvent): void {
   }
 }
 
-export function startIPCServer(manager: SessionManager): net.Server {
+export function startIPCServer(manager: SessionManager, shutdown: () => void): net.Server {
   const server = net.createServer((socket) => {
     console.log('[ipc] client connected')
 
@@ -25,7 +26,7 @@ export function startIPCServer(manager: SessionManager): net.Server {
         if (!line.trim()) continue
         try {
           const cmd = JSON.parse(line) as Command
-          handleCommand(cmd, socket, manager, detachFns)
+          handleCommand(cmd, socket, manager, detachFns, shutdown)
         } catch {
           send(socket, { type: 'error', message: 'Invalid JSON' })
         }
@@ -42,13 +43,39 @@ export function startIPCServer(manager: SessionManager): net.Server {
     })
   })
 
-  server.listen(PIPE_NAME, () => {
-    console.log(`[ipc] listening on ${PIPE_NAME}`)
-  })
+  const onListening = () => {
+    writePid()
+    console.log(`[ipc] listening on ${PIPE_NAME} (pid=${process.pid} → ${PID_FILE})`)
+  }
 
-  server.on('error', (err) => {
-    console.error('[ipc] server error:', err.message)
-    process.exit(1)
+  const doListen = () => {
+    server.once('listening', onListening)
+    server.listen(PIPE_NAME)
+  }
+
+  doListen()
+
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      // Remove the pending once-listener before retry to avoid double-fire
+      server.removeListener('listening', onListening)
+      console.log('[ipc] pipe already in use — attempting to recover...')
+      const killed = killOldDaemon()
+      if (killed) {
+        // Give the old process ~800ms to release the pipe, then retry
+        setTimeout(() => {
+          console.log('[ipc] retrying listen...')
+          doListen()
+        }, 800)
+      } else {
+        console.error('[ipc] EADDRINUSE — no PID file found, cannot auto-recover.')
+        console.error('[ipc] Run: taskkill /F /FI "IMAGENAME eq node.exe"  (or kill the old daemon manually)')
+        process.exit(1)
+      }
+    } else {
+      console.error('[ipc] server error:', err.message)
+      process.exit(1)
+    }
   })
 
   return server
@@ -59,6 +86,7 @@ function handleCommand(
   socket: net.Socket,
   manager: SessionManager,
   detachFns: (() => void)[],
+  shutdown: () => void,
 ): void {
   switch (cmd.cmd) {
     case 'list': {
@@ -84,10 +112,8 @@ function handleCommand(
         send(socket, { type: 'error', message: `Session not found: ${cmd.id}` })
         return
       }
-      // Send buffered output for replay
       send(socket, { type: 'attached', id: session.id, buffer: session.buffer })
 
-      // Stream live output
       const offData = session.onData((data) => {
         send(socket, { type: 'output', id: session.id, data })
       })
@@ -100,7 +126,6 @@ function handleCommand(
     }
 
     case 'detach': {
-      // Detach is handled by socket close — nothing special needed
       send(socket, { type: 'detached', id: cmd.id })
       break
     }
@@ -135,6 +160,12 @@ function handleCommand(
       session.kill()
       manager.remove(cmd.id)
       send(socket, { type: 'ok' })
+      break
+    }
+
+    case 'shutdown': {
+      send(socket, { type: 'ok' })
+      socket.end(() => shutdown())
       break
     }
   }

@@ -11,6 +11,7 @@ export type Command =
   | { cmd: 'input'; id: string; data: string }
   | { cmd: 'resize'; id: string; cols: number; rows: number }
   | { cmd: 'kill'; id: string }
+  | { cmd: 'shutdown' }
 
 // Events: Daemon → Client
 export type DaemonEvent =
